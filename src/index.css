@@ -1,0 +1,50 @@
+/* index.css */
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: sans-serif;
+}
+
+.wrapper {
+  display: flex;
+  height: 100vh; /* full viewport height */
+  width: 100vw;  /* full viewport width */
+}
+
+.flow-container {
+  flex-grow: 1;   /* take all remaining space */
+  height: 100%;   /* full height of wrapper */
+  width: 100%;    /* full width of wrapper minus sidebar */
+  background-color: #f0f0f0;
+}
+
+.sidebar {
+  width: 200px;   /* fixed sidebar width */
+  background: #1a1a1a;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.sidebar button {
+  padding: 8px;
+  border: none;
+  background-color: #333;
+  color: white;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: 0.2s;
+}
+
+.sidebar button:hover {
+  background-color: #555;
+}
+
+.flow-container {
+  flex-grow: 1;
+  background-color: #f0f0f0;
+}
