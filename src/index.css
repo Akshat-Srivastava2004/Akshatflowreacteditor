@@ -48,3 +48,75 @@ html, body, #app {
   flex-grow: 1;
   background-color: #f0f0f0;
 }
+/* Sidebar layout fix */
+.sidebar {
+  width: 260px;
+  background-color: #111;
+  color: white;
+  padding: 16px;
+  height: 100vh;             
+  overflow-y: auto;          
+  overflow-x: hidden;        
+  position: fixed;           
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.wrapper {
+  display: flex;
+}
+
+.flow-container {
+  flex: 1;
+  margin-left: 260px;        
+  height: 100vh;
+}
+
+/* --- Textarea improvements --- */
+.sidebar textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical; /* Allow vertical resizing */
+  border-radius: 8px;
+  border: 1px solid #444;
+  padding: 10px;
+  font-size: 14px;
+  color: #fff;
+  background-color: #1e1e1e;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease;
+}
+
+.sidebar textarea:focus {
+  border-color: #00d4ff;
+  background-color: #252525;
+}
+
+/* --- Buttons for better look --- */
+.sidebar button {
+  width: 100%;
+  margin-top: 8px;
+  background: #222;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.sidebar button:hover {
+  background: #333;
+  transform: scale(1.02);
+}
+
+.sidebar hr {
+  border: none;
+  height: 1px;
+  background-color: #333;
+  margin: 20px 0;
+}
