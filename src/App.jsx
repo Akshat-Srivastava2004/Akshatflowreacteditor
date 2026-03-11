@@ -1,3 +1,5 @@
+import * as htmlToImage from 'html-to-image';
+import { getNodesBounds, getViewportForBounds } from "@xyflow/react";
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ReactFlow,
@@ -283,7 +285,9 @@ function Flow() {
   const [projectId, setProjectId] = React.useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState('Ready');
+  const reactFlowWrapper = useRef(null);
   const syncTimerRef = useRef(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const lastSyncRef = useRef({});
 
   // Load project on mount
@@ -469,61 +473,40 @@ function Flow() {
     setSelectedNodeId(nodes.length ? nodes[0].id : null);
   }, []);
 
-  const handleDownload = async () => {
-    try {
-      const svgElement = document.querySelector('.react-flow svg');
-      if (!svgElement) {
-        alert('Canvas not ready. Please try again.');
-        return;
-      }
+const handleDownload = () => {
+  if (!reactFlowInstance) return;
 
-      const serializer = new XMLSerializer();
-      const svgString = serializer.serializeToString(svgElement);
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      const blob = new Blob([svgString], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
+  const nodesBounds = getNodesBounds(nodes);
 
-      img.onload = () => {
-        const downloadCanvas = document.createElement('canvas');
-        downloadCanvas.width = 1400;
-        downloadCanvas.height = 900;
-        const ctx = downloadCanvas.getContext('2d');
+  const viewport = getViewportForBounds(
+    nodesBounds,
+    1920,
+    1080,
+    0.5,
+    2
+  );
 
-        // White background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
+  const transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`;
 
-        // Draw project ID at top
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText(`Project ID: ${projectId}`, 20, 35);
+  const flow = document.querySelector(".react-flow__viewport");
 
-        // Draw diagram with offset for project ID space
-        ctx.drawImage(img, 0, 60);
-
-        downloadCanvas.toBlob((canvasBlob) => {
-          const downloadUrl = URL.createObjectURL(canvasBlob);
-          const link = document.createElement('a');
-          link.href = downloadUrl;
-          link.download = `project_${projectId}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(downloadUrl);
-          URL.revokeObjectURL(url);
-        }, 'image/png');
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        alert('Failed to export image');
-      };
-      img.src = url;
-    } catch (error) {
-      console.error('[v0] Download error:', error);
-      alert('Error downloading image');
-    }
-  };
+  htmlToImage
+    .toPng(flow, {
+      backgroundColor: "white",
+      width: 1920,
+      height: 1080,
+      style: {
+        transform: transform,
+        transformOrigin: "top left",
+      },
+    })
+    .then((dataUrl) => {
+      const link = document.createElement("a");
+      link.download = `workflow_${projectId}.png`;
+      link.href = dataUrl;
+      link.click();
+    });
+};
 
   const handleProjectIdChange = (newId) => {
     setProjectId(newId);
@@ -554,13 +537,14 @@ function Flow() {
         nodes={nodes}
         onProjectIdChange={handleProjectIdChange}
       />
-      <div className="flow-container">
+    <div className="flow-container" ref={reactFlowWrapper}>
         <div style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#f0f0f0', padding: '5px 10px', borderRadius: '5px', fontSize: '12px', zIndex: 10 }}>
           {syncStatus}
         </div>
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          onInit={setReactFlowInstance}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
