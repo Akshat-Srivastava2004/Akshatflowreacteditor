@@ -473,39 +473,44 @@ function Flow() {
     setSelectedNodeId(nodes.length ? nodes[0].id : null);
   }, []);
 
-const handleDownload = () => {
-  if (!reactFlowInstance) return;
+const handleDownload = async () => {
+  const reactFlow = document.querySelector(".react-flow__viewport");
 
-  const nodesBounds = getNodesBounds(nodes);
+  if (!reactFlow) return;
+
+  const bounds = getNodesBounds(nodes);
+
+  const padding = 200;
+
+  const width = bounds.width + padding;
+  const height = bounds.height + padding;
 
   const viewport = getViewportForBounds(
-    nodesBounds,
-    1920,
-    1080,
-    0.5,
+    bounds,
+    width,
+    height,
+    0.1,
     2
   );
 
   const transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`;
 
-  const flow = document.querySelector(".react-flow__viewport");
+  const dataUrl = await htmlToImage.toPng(reactFlow, {
+    backgroundColor: "white",
+    width: width,
+    height: height,
+    style: {
+      width: width,
+      height: height,
+      transform: transform,
+      transformOrigin: "0 0"
+    }
+  });
 
-  htmlToImage
-    .toPng(flow, {
-      backgroundColor: "white",
-      width: 1920,
-      height: 1080,
-      style: {
-        transform: transform,
-        transformOrigin: "top left",
-      },
-    })
-    .then((dataUrl) => {
-      const link = document.createElement("a");
-      link.download = `workflow_${projectId}.png`;
-      link.href = dataUrl;
-      link.click();
-    });
+  const link = document.createElement("a");
+  link.download = `workflow_${projectId}.png`;
+  link.href = dataUrl;
+  link.click();
 };
 
   const handleProjectIdChange = (newId) => {
