@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -76,6 +76,11 @@ const nodeTypes = {
 const generateProjectId = () => {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 };
+
+// Use this API endpoint - replace with your backend URL
+const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+  ? 'http://localhost:3001/api' 
+  : 'https://your-backend.com/api';
 
 const Sidebar = ({
   addNode,
@@ -232,34 +237,117 @@ function Flow() {
   const [selectedNodeId, setSelectedNodeId] = React.useState(null);
   const [selectedEdge, setSelectedEdge] = React.useState(null);
   const [projectId, setProjectId] = React.useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState('Ready');
+  const syncTimerRef = useRef(null);
+  const lastSyncRef = useRef({});
 
+  // Load project on mount
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlProjectId = params.get('projectId');
+    const loadProject = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlProjectId = params.get('projectId');
 
-    if (urlProjectId) {
-      setProjectId(urlProjectId);
-      const savedProject = localStorage.getItem(`project_${urlProjectId}`);
-      if (savedProject) {
-        const { nodes: savedNodes, edges: savedEdges } = JSON.parse(savedProject);
-        setNodes(savedNodes);
-        setEdges(savedEdges);
+      if (urlProjectId) {
+        setProjectId(urlProjectId);
+        try {
+          // Try to fetch from backend
+          setSyncStatus('Loading from cloud...');
+          const response = await fetch(`${API_BASE}/projects/${urlProjectId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setNodes(data.nodes || []);
+            setEdges(data.edges || []);
+            lastSyncRef.current = { nodes: data.nodes, edges: data.edges };
+            setSyncStatus('Synced');
+          } else {
+            // Fallback to localStorage
+            const savedProject = localStorage.getItem(`project_${urlProjectId}`);
+            if (savedProject) {
+              const { nodes: savedNodes, edges: savedEdges } = JSON.parse(savedProject);
+              setNodes(savedNodes);
+              setEdges(savedEdges);
+              lastSyncRef.current = { nodes: savedNodes, edges: savedEdges };
+              setSyncStatus('Local cache');
+            }
+          }
+        } catch (error) {
+          console.log('[v0] Backend not available, using localStorage');
+          setSyncStatus('Offline mode');
+          const savedProject = localStorage.getItem(`project_${urlProjectId}`);
+          if (savedProject) {
+            const { nodes: savedNodes, edges: savedEdges } = JSON.parse(savedProject);
+            setNodes(savedNodes);
+            setEdges(savedEdges);
+            lastSyncRef.current = { nodes: savedNodes, edges: savedEdges };
+          }
+        }
+      } else {
+        const newProjectId = generateProjectId();
+        setProjectId(newProjectId);
+        window.history.replaceState({}, '', `?projectId=${newProjectId}`);
+        setSyncStatus('New project');
       }
-    } else {
-      const newProjectId = generateProjectId();
-      setProjectId(newProjectId);
-      window.history.replaceState({}, '', `?projectId=${newProjectId}`);
-    }
+      setIsLoading(false);
+    };
+
+    loadProject();
   }, []);
 
+  // Auto-save to cloud and poll for updates
   useEffect(() => {
-    if (projectId) {
-      localStorage.setItem(
-        `project_${projectId}`,
-        JSON.stringify({ nodes, edges })
-      );
-    }
-  }, [nodes, edges, projectId]);
+    if (!projectId || isLoading) return;
+
+    const syncProject = async () => {
+      try {
+        // Save to backend
+        await fetch(`${API_BASE}/projects/${projectId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nodes, edges }),
+        }).catch(() => {
+          // Backend unavailable, just use localStorage
+          localStorage.setItem(`project_${projectId}`, JSON.stringify({ nodes, edges }));
+        });
+
+        // Fetch latest from backend to see if others made changes
+        try {
+          const response = await fetch(`${API_BASE}/projects/${projectId}`);
+          if (response.ok) {
+            const data = await response.json();
+            const lastSync = lastSyncRef.current;
+            
+            // Check if remote data is different from our local data
+            const localChanged = JSON.stringify({ nodes, edges }) !== JSON.stringify(lastSync);
+            const remoteChanged = JSON.stringify(data) !== JSON.stringify(lastSync);
+            
+            // If remote changed and we didn't make changes, update local
+            if (remoteChanged && !localChanged) {
+              console.log('[v0] Pulling updates from cloud');
+              setNodes(data.nodes || []);
+              setEdges(data.edges || []);
+            }
+            lastSyncRef.current = { nodes: data.nodes, edges: data.edges };
+            setSyncStatus('Synced');
+          }
+        } catch (e) {
+          // Just use localStorage
+          localStorage.setItem(`project_${projectId}`, JSON.stringify({ nodes, edges }));
+        }
+      } catch (error) {
+        console.log('[v0] Sync error:', error);
+        localStorage.setItem(`project_${projectId}`, JSON.stringify({ nodes, edges }));
+      }
+    };
+
+    // Save immediately and then every 2 seconds
+    syncProject();
+    syncTimerRef.current = setInterval(syncProject, 2000);
+
+    return () => {
+      if (syncTimerRef.current) clearInterval(syncTimerRef.current);
+    };
+  }, [nodes, edges, projectId, isLoading]);
 
   const onConnect = useCallback(
     (params) =>
@@ -337,25 +425,54 @@ function Flow() {
     setSelectedNodeId(nodes.length ? nodes[0].id : null);
   }, []);
 
-  const handleDownload = () => {
-    const projectData = {
-      id: projectId,
-      nodes,
-      edges,
-      exportedAt: new Date().toISOString(),
-    };
+  const handleDownload = async () => {
+    const svgElement = document.querySelector('.react-flow svg');
+    if (!svgElement) {
+      alert('Canvas not ready. Please try again.');
+      return;
+    }
 
-    const dataStr = JSON.stringify(projectData, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `project_${projectId}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(svgElement);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+
+    img.onload = () => {
+      const downloadCanvas = document.createElement('canvas');
+      downloadCanvas.width = 1200;
+      downloadCanvas.height = 800;
+      const ctx = downloadCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
+      ctx.drawImage(img, 0, 0);
+      downloadCanvas.toBlob((canvasBlob) => {
+        const downloadUrl = URL.createObjectURL(canvasBlob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `project_${projectId}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(downloadUrl);
+        URL.revokeObjectURL(url);
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      alert('Failed to export image');
+    };
+    img.src = url;
   };
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <h2>Loading project...</h2>
+      </div>
+    );
+  }
 
   return (
     <div className="wrapper">
@@ -372,6 +489,9 @@ function Flow() {
         nodes={nodes}
       />
       <div className="flow-container">
+        <div style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#f0f0f0', padding: '5px 10px', borderRadius: '5px', fontSize: '12px', zIndex: 10 }}>
+          {syncStatus}
+        </div>
         <ReactFlow
           nodes={nodes}
           edges={edges}
