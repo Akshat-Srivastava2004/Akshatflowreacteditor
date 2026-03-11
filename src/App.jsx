@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -14,7 +14,6 @@ import '@xyflow/react/dist/style.css';
 import './index.css';
 
 const nodeColor = (node) => {
-  // <CHANGE> Check for custom color first, then fall back to type-based color
   if (node.data?.customColor) {
     return node.data.customColor;
   }
@@ -34,7 +33,6 @@ const CustomNode = ({ data }) => {
   return (
     <div
       style={{
-        // <CHANGE> Use the updated nodeColor function that checks customColor
         backgroundColor: nodeColor({ type: data.type, data }),
         color: 'white',
         padding: 10,
@@ -75,12 +73,26 @@ const nodeTypes = {
   custom: CustomNode,
 };
 
-// <CHANGE> Enhanced Sidebar with Add Text feature and text editor
-const Sidebar = ({ addNode, deleteNode, changeNodeColor, edges, updateEdgeLabel, selectedEdge, setSelectedEdge }) => {
-  const [textInput, setTextInput] = React.useState(selectedEdge?.data?.label || '');
-  const [nodeColor, setNodeColor] = React.useState('#ff0072');
+const generateProjectId = () => {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
 
-  React.useEffect(() => {
+const Sidebar = ({
+  addNode,
+  deleteNode,
+  changeNodeColor,
+  edges,
+  updateEdgeLabel,
+  selectedEdge,
+  setSelectedEdge,
+  projectId,
+  onDownload,
+  nodes,
+}) => {
+  const [textInput, setTextInput] = React.useState(selectedEdge?.data?.label || '');
+  const [copied, setCopied] = React.useState(false);
+
+  useEffect(() => {
     if (selectedEdge?.data?.label) {
       setTextInput(selectedEdge.data.label);
     }
@@ -99,6 +111,13 @@ const Sidebar = ({ addNode, deleteNode, changeNodeColor, edges, updateEdgeLabel,
     }
   };
 
+  const handleCopyLink = () => {
+    const shareUrl = `${window.location.origin}?projectId=${projectId}`;
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const colors = [
     { name: 'Green', color: '#6ede87' },
     { name: 'Purple', color: '#6865A5' },
@@ -112,7 +131,43 @@ const Sidebar = ({ addNode, deleteNode, changeNodeColor, edges, updateEdgeLabel,
 
   return (
     <div className="sidebar">
-      <h3 style={{ marginTop: 0 }}>Add Nodes</h3>
+      <h3 style={{ marginTop: 0 }}>Project: {projectId}</h3>
+      <button
+        onClick={handleCopyLink}
+        style={{
+          width: '100%',
+          padding: '10px',
+          background: '#0041d0',
+          color: 'white',
+          border: 'none',
+          borderRadius: '5px',
+          cursor: 'pointer',
+          marginBottom: '8px',
+        }}
+      >
+        {copied ? '✓ Link Copied!' : 'Copy Share Link'}
+      </button>
+
+      <button
+        onClick={onDownload}
+        style={{
+          width: '100%',
+          padding: '10px',
+          background: '#6ede87',
+          color: 'black',
+          border: 'none',
+          borderRadius: '5px',
+          cursor: 'pointer',
+          marginBottom: '15px',
+          fontWeight: 'bold',
+        }}
+      >
+        ⬇ Download Project
+      </button>
+
+      <hr style={{ margin: '15px 0' }} />
+
+      <h3>Add Nodes</h3>
       <button onClick={() => addNode('input')}>Add Input Node</button>
       <button onClick={() => addNode('default')}>Add Default Node</button>
       <button onClick={() => addNode('output')}>Add Output Node</button>
@@ -138,7 +193,10 @@ const Sidebar = ({ addNode, deleteNode, changeNodeColor, edges, updateEdgeLabel,
       <button onClick={handleAddText} style={{ marginTop: '8px', width: '100%' }}>
         {selectedEdge ? 'Update Edge Text' : 'Add Text to Edge'}
       </button>
-      <button onClick={handleClearText} style={{ marginTop: '5px', width: '100%', background: '#ff6b6b' }}>
+      <button
+        onClick={handleClearText}
+        style={{ marginTop: '5px', width: '100%', background: '#ff6b6b' }}
+      >
         Clear Text
       </button>
 
@@ -173,16 +231,48 @@ function Flow() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = React.useState(null);
   const [selectedEdge, setSelectedEdge] = React.useState(null);
+  const [projectId, setProjectId] = React.useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlProjectId = params.get('projectId');
+
+    if (urlProjectId) {
+      setProjectId(urlProjectId);
+      const savedProject = localStorage.getItem(`project_${urlProjectId}`);
+      if (savedProject) {
+        const { nodes: savedNodes, edges: savedEdges } = JSON.parse(savedProject);
+        setNodes(savedNodes);
+        setEdges(savedEdges);
+      }
+    } else {
+      const newProjectId = generateProjectId();
+      setProjectId(newProjectId);
+      window.history.replaceState({}, '', `?projectId=${newProjectId}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (projectId) {
+      localStorage.setItem(
+        `project_${projectId}`,
+        JSON.stringify({ nodes, edges })
+      );
+    }
+  }, [nodes, edges, projectId]);
 
   const onConnect = useCallback(
     (params) =>
       setEdges((eds) =>
-        addEdge({
-          ...params,
-          animated: true,
-          style: { stroke: '#0041d0', strokeWidth: 2 },
-          data: { label: '' },
-        }, eds)
+        addEdge(
+          {
+            ...params,
+            animated: true,
+            style: { stroke: '#0041d0', strokeWidth: 2 },
+            data: { label: '' },
+          },
+          eds
+        )
       ),
     [setEdges]
   );
@@ -190,24 +280,27 @@ function Flow() {
   const deleteNode = () => {
     if (!selectedNodeId) return;
     setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
-    setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
+    setEdges((eds) =>
+      eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId)
+    );
     setSelectedNodeId(null);
   };
-  const changeNodeColor = (color) => {
-  if (!selectedNodeId) return;
-  setNodes((nds) =>
-    nds.map((node) =>
-      node.id === selectedNodeId
-        ? { ...node, data: { ...node.data, customColor: color } }
-        : node
-    )
-  );
-};
 
+  const changeNodeColor = (color) => {
+    if (!selectedNodeId) return;
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === selectedNodeId
+          ? { ...node, data: { ...node.data, customColor: color } }
+          : node
+      )
+    );
+  };
 
   const addNode = (type) => {
     const id = (nodes.length + 1).toString();
-    const label = type === 'input' ? 'Input Node' : type === 'output' ? 'Output Node' : `Node ${id}`;
+    const label =
+      type === 'input' ? 'Input Node' : type === 'output' ? 'Output Node' : `Node ${id}`;
     const newNode = {
       id,
       type: 'custom',
@@ -221,23 +314,21 @@ function Flow() {
     const label = prompt('Enter new label:', node.data.label);
     if (label) {
       setNodes((nds) =>
-        nds.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, label } } : n))
+        nds.map((n) =>
+          n.id === node.id ? { ...n, data: { ...n.data, label } } : n
+        )
       );
     }
   };
 
-  // <CHANGE> Handle edge click to select and edit text
   const onEdgeClick = (event, edge) => {
     setSelectedEdge(edge);
   };
 
-  // <CHANGE> Update edge label with text
   const updateEdgeLabel = (edgeId, label) => {
     setEdges((eds) =>
       eds.map((e) =>
-        e.id === edgeId
-          ? { ...e, label, data: { ...e.data, label } }
-          : e
+        e.id === edgeId ? { ...e, label, data: { ...e.data, label } } : e
       )
     );
   };
@@ -246,17 +337,40 @@ function Flow() {
     setSelectedNodeId(nodes.length ? nodes[0].id : null);
   }, []);
 
+  const handleDownload = () => {
+    const projectData = {
+      id: projectId,
+      nodes,
+      edges,
+      exportedAt: new Date().toISOString(),
+    };
+
+    const dataStr = JSON.stringify(projectData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `project_${projectId}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="wrapper">
-    <Sidebar
-  addNode={addNode}
-  deleteNode={deleteNode}
-  changeNodeColor={changeNodeColor}
-  edges={edges}
-  updateEdgeLabel={updateEdgeLabel}
-  selectedEdge={selectedEdge}
-  setSelectedEdge={setSelectedEdge}
-/>
+      <Sidebar
+        addNode={addNode}
+        deleteNode={deleteNode}
+        changeNodeColor={changeNodeColor}
+        edges={edges}
+        updateEdgeLabel={updateEdgeLabel}
+        selectedEdge={selectedEdge}
+        setSelectedEdge={setSelectedEdge}
+        projectId={projectId}
+        onDownload={handleDownload}
+        nodes={nodes}
+      />
       <div className="flow-container">
         <ReactFlow
           nodes={nodes}
