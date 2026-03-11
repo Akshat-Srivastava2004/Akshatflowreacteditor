@@ -93,9 +93,11 @@ const Sidebar = ({
   projectId,
   onDownload,
   nodes,
+  onProjectIdChange,
 }) => {
   const [textInput, setTextInput] = React.useState(selectedEdge?.data?.label || '');
   const [copied, setCopied] = React.useState(false);
+  const [manualProjectId, setManualProjectId] = React.useState(projectId || '');
 
   useEffect(() => {
     if (selectedEdge?.data?.label) {
@@ -123,6 +125,12 @@ const Sidebar = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSetProjectId = () => {
+    if (manualProjectId.trim()) {
+      onProjectIdChange(manualProjectId.trim());
+    }
+  };
+
   const colors = [
     { name: 'Green', color: '#6ede87' },
     { name: 'Purple', color: '#6865A5' },
@@ -137,6 +145,42 @@ const Sidebar = ({
   return (
     <div className="sidebar">
       <h3 style={{ marginTop: 0 }}>Project: {projectId}</h3>
+
+      <div style={{ marginBottom: '15px' }}>
+        <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold' }}>
+          Enter Project ID:
+        </label>
+        <input
+          type="text"
+          value={manualProjectId}
+          onChange={(e) => setManualProjectId(e.target.value)}
+          placeholder="Enter project ID..."
+          style={{
+            width: '100%',
+            padding: '8px',
+            borderRadius: '5px',
+            border: '1px solid #ccc',
+            marginBottom: '5px',
+            boxSizing: 'border-box',
+          }}
+        />
+        <button
+          onClick={handleSetProjectId}
+          style={{
+            width: '100%',
+            padding: '8px',
+            background: '#0041d0',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer',
+            fontSize: '12px',
+          }}
+        >
+          Set Project ID
+        </button>
+      </div>
+
       <button
         onClick={handleCopyLink}
         style={{
@@ -167,7 +211,7 @@ const Sidebar = ({
           fontWeight: 'bold',
         }}
       >
-        ⬇ Download Project
+        ⬇ Download as Image
       </button>
 
       <hr style={{ margin: '15px 0' }} />
@@ -426,44 +470,65 @@ function Flow() {
   }, []);
 
   const handleDownload = async () => {
-    const svgElement = document.querySelector('.react-flow svg');
-    if (!svgElement) {
-      alert('Canvas not ready. Please try again.');
-      return;
-    }
+    try {
+      const svgElement = document.querySelector('.react-flow svg');
+      if (!svgElement) {
+        alert('Canvas not ready. Please try again.');
+        return;
+      }
 
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svgElement);
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    const blob = new Blob([svgString], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(svgElement);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
 
-    img.onload = () => {
-      const downloadCanvas = document.createElement('canvas');
-      downloadCanvas.width = 1200;
-      downloadCanvas.height = 800;
-      const ctx = downloadCanvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
-      ctx.drawImage(img, 0, 0);
-      downloadCanvas.toBlob((canvasBlob) => {
-        const downloadUrl = URL.createObjectURL(canvasBlob);
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `project_${projectId}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(downloadUrl);
+      img.onload = () => {
+        const downloadCanvas = document.createElement('canvas');
+        downloadCanvas.width = 1400;
+        downloadCanvas.height = 900;
+        const ctx = downloadCanvas.getContext('2d');
+
+        // White background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, downloadCanvas.width, downloadCanvas.height);
+
+        // Draw project ID at top
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText(`Project ID: ${projectId}`, 20, 35);
+
+        // Draw diagram with offset for project ID space
+        ctx.drawImage(img, 0, 60);
+
+        downloadCanvas.toBlob((canvasBlob) => {
+          const downloadUrl = URL.createObjectURL(canvasBlob);
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.download = `project_${projectId}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(downloadUrl);
+          URL.revokeObjectURL(url);
+        }, 'image/png');
+      };
+      img.onerror = () => {
         URL.revokeObjectURL(url);
-      });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      alert('Failed to export image');
-    };
-    img.src = url;
+        alert('Failed to export image');
+      };
+      img.src = url;
+    } catch (error) {
+      console.error('[v0] Download error:', error);
+      alert('Error downloading image');
+    }
+  };
+
+  const handleProjectIdChange = (newId) => {
+    setProjectId(newId);
+    window.history.replaceState({}, '', `?projectId=${newId}`);
+    localStorage.setItem(`project_${newId}`, JSON.stringify({ nodes, edges }));
   };
 
   if (isLoading) {
@@ -487,6 +552,7 @@ function Flow() {
         projectId={projectId}
         onDownload={handleDownload}
         nodes={nodes}
+        onProjectIdChange={handleProjectIdChange}
       />
       <div className="flow-container">
         <div style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#f0f0f0', padding: '5px 10px', borderRadius: '5px', fontSize: '12px', zIndex: 10 }}>
